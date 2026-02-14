@@ -3,7 +3,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**FerroDB** is a high-performance, Redis-compatible key-value cache database built from scratch in Rust. Designed as both a learning project, FerroDB implements core Redis functionality with modern async I/O and robust persistence.
+**FerroDB** is a high-performance, Redis-compatible key-value cache database built from scratch in Rust. Designed as a learning project, FerroDB implements core Redis functionality with modern async I/O and robust persistence.
 
 ---
 
