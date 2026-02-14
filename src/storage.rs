@@ -9,9 +9,15 @@ pub struct FerroStore {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct SortedSetData {
-    scores: BTreeMap<OrderedFloat<f64>, HashSet<String>>,
-    members: HashMap<String, OrderedFloat<f64>>,
+pub struct SortedSetData {
+    pub scores: BTreeMap<OrderedFloat<f64>, HashSet<String>>,
+    pub members: HashMap<String, OrderedFloat<f64>>,
+}
+
+impl Default for SortedSetData {
+    fn default() -> Self {
+        SortedSetData::new()
+    }
 }
 
 impl SortedSetData {

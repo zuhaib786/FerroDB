@@ -365,3 +365,100 @@ async fn test_lpush_on_string_key() {
         panic!("Expected error message");
     }
 }
+#[tokio::test]
+async fn test_sadd_smembers() {
+    let store = FerroStore::new();
+
+    let input = "*4\r\n$4\r\nSADD\r\n$5\r\nmyset\r\n$5\r\napple\r\n$6\r\nbanana\r\n";
+    let parsed = parse_resp(input).unwrap();
+    let response = handle_command(parsed, &store, None).await;
+    assert_eq!(response, RespValue::Integer(2));
+
+    let input = "*2\r\n$8\r\nSMEMBERS\r\n$5\r\nmyset\r\n";
+    let parsed = parse_resp(input).unwrap();
+    let response = handle_command(parsed, &store, None).await;
+
+    if let RespValue::Array(members) = response {
+        assert_eq!(members.len(), 2);
+    } else {
+        panic!("Expected array response");
+    }
+}
+
+#[tokio::test]
+async fn test_sinter() {
+    let store = FerroStore::new();
+
+    store
+        .sadd(
+            "set1",
+            vec!["a".to_string(), "b".to_string(), "c".to_string()],
+        )
+        .unwrap();
+    store
+        .sadd(
+            "set2",
+            vec!["b".to_string(), "c".to_string(), "d".to_string()],
+        )
+        .unwrap();
+
+    let input = "*3\r\n$6\r\nSINTER\r\n$4\r\nset1\r\n$4\r\nset2\r\n";
+    let parsed = parse_resp(input).unwrap();
+    let response = handle_command(parsed, &store, None).await;
+
+    if let RespValue::Array(members) = response {
+        assert_eq!(members.len(), 2);
+    } else {
+        panic!("Expected array response");
+    }
+}
+
+// ============ SORTED SET TESTS ============
+
+#[tokio::test]
+async fn test_zadd_zrange() {
+    let store = FerroStore::new();
+
+    let input = "*6\r\n$4\r\nZADD\r\n$11\r\nleaderboard\r\n$3\r\n100\r\n$5\r\nalice\r\n$3\r\n200\r\n$3\r\nbob\r\n";
+    let parsed = parse_resp(input).unwrap();
+    let response = handle_command(parsed, &store, None).await;
+    assert_eq!(response, RespValue::Integer(2));
+
+    let input = "*4\r\n$6\r\nZRANGE\r\n$11\r\nleaderboard\r\n$1\r\n0\r\n$2\r\n-1\r\n";
+    let parsed = parse_resp(input).unwrap();
+    let response = handle_command(parsed, &store, None).await;
+
+    assert_eq!(
+        response,
+        RespValue::Array(vec![
+            RespValue::BulkString("alice".to_string()),
+            RespValue::BulkString("bob".to_string()),
+        ])
+    );
+}
+
+#[tokio::test]
+async fn test_zscore_zrank() {
+    let store = FerroStore::new();
+
+    store
+        .zadd(
+            "leaderboard",
+            vec![
+                (100.0, "alice".to_string()),
+                (200.0, "bob".to_string()),
+                (150.0, "charlie".to_string()),
+            ],
+        )
+        .unwrap();
+
+    let input = "*3\r\n$6\r\nZSCORE\r\n$11\r\nleaderboard\r\n$5\r\nalice\r\n";
+    let parsed = parse_resp(input).unwrap();
+    let response = handle_command(parsed, &store, None).await;
+    assert_eq!(response, RespValue::BulkString("100".to_string()));
+
+    let input = "*3\r\n$5\r\nZRANK\r\n$11\r\nleaderboard\r\n$3\r\nbob\r\n";
+    let parsed = parse_resp(input).unwrap();
+    let response = handle_command(parsed, &store, None).await;
+    assert_eq!(response, RespValue::Integer(2));
+}

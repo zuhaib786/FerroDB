@@ -30,6 +30,10 @@ pub async fn handle_command(
             | "RPUSH"
             | "LPOP"
             | "RPOP"
+            | "SADD"
+            | "SREM"
+            | "ZADD"
+            | "ZREM"
     );
     if should_log && let Some(aof_writer) = aof {
         aof_writer.log_command(&RespValue::Array(cmd_array.clone()));
@@ -60,6 +64,24 @@ pub async fn handle_command(
         "LASTSAVE" => handle_lastsave(&cmd_array, store),
         "DBSIZE" => handle_dbsize(&cmd_array, store),
         "BGREWRITEAOF" => handle_bgrewriteaof(&cmd_array, store),
+
+        // Sorted Set Operations
+        "ZADD" => handle_zadd(&cmd_array, store),
+        "ZREM" => handle_zrem(&cmd_array, store),
+        "ZSCORE" => handle_zscore(&cmd_array, store),
+        "ZRANGE" => handle_zrange(&cmd_array, store),
+        "ZRANK" => handle_zrank(&cmd_array, store),
+        "ZCARD" => handle_zcard(&cmd_array, store),
+
+        // Set commands
+        "SADD" => handle_sadd(&cmd_array, store),
+        "SREM" => handle_srem(&cmd_array, store),
+        "SMEMBERS" => handle_smembers(&cmd_array, store),
+        "SISMEMBER" => handle_sismember(&cmd_array, store),
+        "SCARD" => handle_scard(&cmd_array, store),
+        "SINTER" => handle_sinter(&cmd_array, store),
+        "SUNION" => handle_sunion(&cmd_array, store),
+        "SDIFF" => handle_sdiff(&cmd_array, store),
 
         _ => RespValue::SimpleString(format!("ERR unknown command {}", cmd_name)),
     }
@@ -521,4 +543,346 @@ fn handle_bgrewriteaof(cmd_array: &[RespValue], store: &FerroStore) -> RespValue
     });
 
     RespValue::SimpleString("Background AOF rewrite started".to_string())
+}
+
+fn handle_sadd(cmd_array: &[RespValue], store: &FerroStore) -> RespValue {
+    if cmd_array.len() < 3 {
+        return RespValue::SimpleString(
+            "ERR wrong number of arguments for 'sadd' command".to_string(),
+        );
+    }
+    if let RespValue::BulkString(key) = &cmd_array[1] {
+        let mut members = Vec::new();
+
+        for val in &cmd_array[2..] {
+            if let RespValue::BulkString(v) = val {
+                members.push(v.clone());
+            } else {
+                return RespValue::SimpleString("ERR all members must be bulk strings".to_string());
+            }
+        }
+        match store.sadd(key, members) {
+            Ok(added) => RespValue::Integer(added as i64),
+            Err(e) => RespValue::SimpleString(format!("-{}", e)),
+        }
+    } else {
+        RespValue::SimpleString("ERR key must be a bulk string".to_string())
+    }
+}
+fn handle_srem(cmd_array: &[RespValue], store: &FerroStore) -> RespValue {
+    if cmd_array.len() < 3 {
+        return RespValue::SimpleString(
+            "ERR wrong number of arguments for 'srem' command".to_string(),
+        );
+    }
+
+    if let RespValue::BulkString(key) = &cmd_array[1] {
+        let mut members = Vec::new();
+
+        for val in &cmd_array[2..] {
+            if let RespValue::BulkString(v) = val {
+                members.push(v.clone());
+            } else {
+                return RespValue::SimpleString("ERR all members must be bulk strings".to_string());
+            }
+        }
+
+        match store.srem(key, members) {
+            Ok(removed) => RespValue::Integer(removed as i64),
+            Err(e) => RespValue::SimpleString(format!("-{}", e)),
+        }
+    } else {
+        RespValue::SimpleString("ERR key must be a bulk string".to_string())
+    }
+}
+
+fn handle_smembers(cmd_array: &[RespValue], store: &FerroStore) -> RespValue {
+    if cmd_array.len() != 2 {
+        return RespValue::SimpleString(
+            "ERR wrong number of arguments for 'smembers' command".to_string(),
+        );
+    }
+
+    if let RespValue::BulkString(key) = &cmd_array[1] {
+        match store.smembers(key) {
+            Ok(members) => {
+                RespValue::Array(members.into_iter().map(RespValue::BulkString).collect())
+            }
+            Err(e) => RespValue::SimpleString(format!("-{}", e)),
+        }
+    } else {
+        RespValue::SimpleString("ERR key must be a bulk string".to_string())
+    }
+}
+
+fn handle_sismember(cmd_array: &[RespValue], store: &FerroStore) -> RespValue {
+    if cmd_array.len() != 3 {
+        return RespValue::SimpleString(
+            "ERR wrong number of arguments for 'sismember' command".to_string(),
+        );
+    }
+
+    if let (RespValue::BulkString(key), RespValue::BulkString(member)) =
+        (&cmd_array[1], &cmd_array[2])
+    {
+        match store.sismember(key, member) {
+            Ok(exists) => RespValue::Integer(if exists { 1 } else { 0 }),
+            Err(e) => RespValue::SimpleString(format!("-{}", e)),
+        }
+    } else {
+        RespValue::SimpleString("ERR arguments must be bulk strings".to_string())
+    }
+}
+
+fn handle_scard(cmd_array: &[RespValue], store: &FerroStore) -> RespValue {
+    if cmd_array.len() != 2 {
+        return RespValue::SimpleString(
+            "ERR wrong number of arguments for 'scard' command".to_string(),
+        );
+    }
+
+    if let RespValue::BulkString(key) = &cmd_array[1] {
+        match store.scard(key) {
+            Ok(size) => RespValue::Integer(size as i64),
+            Err(e) => RespValue::SimpleString(format!("-{}", e)),
+        }
+    } else {
+        RespValue::SimpleString("ERR key must be a bulk string".to_string())
+    }
+}
+
+fn handle_sinter(cmd_array: &[RespValue], store: &FerroStore) -> RespValue {
+    if cmd_array.len() < 2 {
+        return RespValue::SimpleString(
+            "ERR wrong number of arguments for 'sinter' command".to_string(),
+        );
+    }
+
+    let mut keys = Vec::new();
+    for val in &cmd_array[1..] {
+        if let RespValue::BulkString(k) = val {
+            keys.push(k.clone());
+        } else {
+            return RespValue::SimpleString("ERR all keys must be bulk strings".to_string());
+        }
+    }
+
+    match store.sinter(keys) {
+        Ok(members) => RespValue::Array(members.into_iter().map(RespValue::BulkString).collect()),
+        Err(e) => RespValue::SimpleString(format!("-{}", e)),
+    }
+}
+
+fn handle_sunion(cmd_array: &[RespValue], store: &FerroStore) -> RespValue {
+    if cmd_array.len() < 2 {
+        return RespValue::SimpleString(
+            "ERR wrong number of arguments for 'sunion' command".to_string(),
+        );
+    }
+
+    let mut keys = Vec::new();
+    for val in &cmd_array[1..] {
+        if let RespValue::BulkString(k) = val {
+            keys.push(k.clone());
+        } else {
+            return RespValue::SimpleString("ERR all keys must be bulk strings".to_string());
+        }
+    }
+
+    match store.sunion(keys) {
+        Ok(members) => RespValue::Array(members.into_iter().map(RespValue::BulkString).collect()),
+        Err(e) => RespValue::SimpleString(format!("-{}", e)),
+    }
+}
+
+fn handle_sdiff(cmd_array: &[RespValue], store: &FerroStore) -> RespValue {
+    if cmd_array.len() < 2 {
+        return RespValue::SimpleString(
+            "ERR wrong number of arguments for 'sdiff' command".to_string(),
+        );
+    }
+
+    let mut keys = Vec::new();
+    for val in &cmd_array[1..] {
+        if let RespValue::BulkString(k) = val {
+            keys.push(k.clone());
+        } else {
+            return RespValue::SimpleString("ERR all keys must be bulk strings".to_string());
+        }
+    }
+
+    match store.sdiff(keys) {
+        Ok(members) => RespValue::Array(members.into_iter().map(RespValue::BulkString).collect()),
+        Err(e) => RespValue::SimpleString(format!("-{}", e)),
+    }
+}
+
+// ============ SORTED SET COMMAND HANDLERS ============
+
+fn handle_zadd(cmd_array: &[RespValue], store: &FerroStore) -> RespValue {
+    // ZADD key score member [score member ...]
+    if cmd_array.len() < 4 || !(cmd_array.len() - 2).is_multiple_of(2) {
+        return RespValue::SimpleString(
+            "ERR wrong number of arguments for 'zadd' command".to_string(),
+        );
+    }
+
+    if let RespValue::BulkString(key) = &cmd_array[1] {
+        let mut members = Vec::new();
+
+        // Parse score-member pairs
+        let mut i = 2;
+        while i < cmd_array.len() {
+            if let (RespValue::BulkString(score_str), RespValue::BulkString(member)) =
+                (&cmd_array[i], &cmd_array[i + 1])
+            {
+                match score_str.parse::<f64>() {
+                    Ok(score) => members.push((score, member.clone())),
+                    Err(_) => {
+                        return RespValue::SimpleString(
+                            "ERR value is not a valid float".to_string(),
+                        );
+                    }
+                }
+            } else {
+                return RespValue::SimpleString("ERR syntax error".to_string());
+            }
+            i += 2;
+        }
+
+        match store.zadd(key, members) {
+            Ok(added) => RespValue::Integer(added as i64),
+            Err(e) => RespValue::SimpleString(format!("-{}", e)),
+        }
+    } else {
+        RespValue::SimpleString("ERR key must be a bulk string".to_string())
+    }
+}
+
+fn handle_zrem(cmd_array: &[RespValue], store: &FerroStore) -> RespValue {
+    if cmd_array.len() < 3 {
+        return RespValue::SimpleString(
+            "ERR wrong number of arguments for 'zrem' command".to_string(),
+        );
+    }
+
+    if let RespValue::BulkString(key) = &cmd_array[1] {
+        let mut members = Vec::new();
+
+        for val in &cmd_array[2..] {
+            if let RespValue::BulkString(v) = val {
+                members.push(v.clone());
+            } else {
+                return RespValue::SimpleString("ERR all members must be bulk strings".to_string());
+            }
+        }
+
+        match store.zrem(key, members) {
+            Ok(removed) => RespValue::Integer(removed as i64),
+            Err(e) => RespValue::SimpleString(format!("-{}", e)),
+        }
+    } else {
+        RespValue::SimpleString("ERR key must be a bulk string".to_string())
+    }
+}
+
+fn handle_zscore(cmd_array: &[RespValue], store: &FerroStore) -> RespValue {
+    if cmd_array.len() != 3 {
+        return RespValue::SimpleString(
+            "ERR wrong number of arguments for 'zscore' command".to_string(),
+        );
+    }
+
+    if let (RespValue::BulkString(key), RespValue::BulkString(member)) =
+        (&cmd_array[1], &cmd_array[2])
+    {
+        match store.zscore(key, member) {
+            Ok(Some(score)) => RespValue::BulkString(score.to_string()),
+            Ok(None) => RespValue::Null,
+            Err(e) => RespValue::SimpleString(format!("-{}", e)),
+        }
+    } else {
+        RespValue::SimpleString("ERR arguments must be bulk strings".to_string())
+    }
+}
+
+fn handle_zrange(cmd_array: &[RespValue], store: &FerroStore) -> RespValue {
+    // ZRANGE key start stop [WITHSCORES]
+    if cmd_array.len() < 4 || cmd_array.len() > 5 {
+        return RespValue::SimpleString(
+            "ERR wrong number of arguments for 'zrange' command".to_string(),
+        );
+    }
+
+    if let (
+        RespValue::BulkString(key),
+        RespValue::BulkString(start_str),
+        RespValue::BulkString(stop_str),
+    ) = (&cmd_array[1], &cmd_array[2], &cmd_array[3])
+    {
+        let start = match start_str.parse::<i64>() {
+            Ok(s) => s,
+            Err(_) => return RespValue::SimpleString("ERR value is not an integer".to_string()),
+        };
+
+        let stop = match stop_str.parse::<i64>() {
+            Ok(s) => s,
+            Err(_) => return RespValue::SimpleString("ERR value is not an integer".to_string()),
+        };
+
+        // Check for WITHSCORES flag
+        let with_scores = if cmd_array.len() == 5 {
+            if let RespValue::BulkString(flag) = &cmd_array[4] {
+                flag.to_uppercase() == "WITHSCORES"
+            } else {
+                return RespValue::SimpleString("ERR syntax error".to_string());
+            }
+        } else {
+            false
+        };
+
+        match store.zrange(key, start, stop, with_scores) {
+            Ok(values) => RespValue::Array(values.into_iter().map(RespValue::BulkString).collect()),
+            Err(e) => RespValue::SimpleString(format!("-{}", e)),
+        }
+    } else {
+        RespValue::SimpleString("ERR arguments must be bulk strings".to_string())
+    }
+}
+
+fn handle_zrank(cmd_array: &[RespValue], store: &FerroStore) -> RespValue {
+    if cmd_array.len() != 3 {
+        return RespValue::SimpleString(
+            "ERR wrong number of arguments for 'zrank' command".to_string(),
+        );
+    }
+
+    if let (RespValue::BulkString(key), RespValue::BulkString(member)) =
+        (&cmd_array[1], &cmd_array[2])
+    {
+        match store.zrank(key, member) {
+            Ok(Some(rank)) => RespValue::Integer(rank as i64),
+            Ok(None) => RespValue::Null,
+            Err(e) => RespValue::SimpleString(format!("-{}", e)),
+        }
+    } else {
+        RespValue::SimpleString("ERR arguments must be bulk strings".to_string())
+    }
+}
+
+fn handle_zcard(cmd_array: &[RespValue], store: &FerroStore) -> RespValue {
+    if cmd_array.len() != 2 {
+        return RespValue::SimpleString(
+            "ERR wrong number of arguments for 'zcard' command".to_string(),
+        );
+    }
+
+    if let RespValue::BulkString(key) = &cmd_array[1] {
+        match store.zcard(key) {
+            Ok(size) => RespValue::Integer(size as i64),
+            Err(e) => RespValue::SimpleString(format!("-{}", e)),
+        }
+    } else {
+        RespValue::SimpleString("ERR key must be a bulk string".to_string())
+    }
 }

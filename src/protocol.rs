@@ -20,7 +20,7 @@ fn parse_recursive(
 ) -> Result<RespValue, String> {
     let mut line = lines.next().ok_or("Empty input")?;
     while line.is_empty() {
-        line = lines.next().ok_or("Empty input".to_string())?;
+        line = lines.next().ok_or("Empty input")?;
     }
     let prefix = line.chars().next().ok_or("Missing prefix")?;
 

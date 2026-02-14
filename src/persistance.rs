@@ -1,5 +1,6 @@
-use crate::storage::{DataType, FerroStore};
-use std::collections::VecDeque;
+use crate::storage::{DataType, FerroStore, SortedSetData};
+use ordered_float::OrderedFloat;
+use std::collections::{HashSet, VecDeque};
 use std::io;
 use std::time::{Duration, Instant};
 use tokio::fs::File;
@@ -39,6 +40,21 @@ pub async fn save_rdb(store: &FerroStore, path: &str) -> io::Result<()> {
                 file.write_u64(list.len() as u64).await?;
                 for item in list {
                     write_string(&mut file, &item).await?;
+                }
+            }
+            DataType::Set(set) => {
+                file.write_u8(2).await?; // Type: Set
+                file.write_u64_le(set.len() as u64).await?;
+                for member in set {
+                    write_string(&mut file, &member).await?;
+                }
+            }
+            DataType::SortedSet(zset) => {
+                file.write_u8(3).await?; // Type: SortedSet
+                file.write_u64_le(zset.len() as u64).await?;
+                for (member, score) in &zset.members {
+                    write_string(&mut file, member).await?;
+                    file.write_f64_le(score.0).await?;
                 }
             }
             _ => {}
@@ -116,6 +132,32 @@ pub async fn load_rdb(store: &FerroStore, path: &str) -> io::Result<()> {
                     list.push_back(item);
                 }
                 DataType::List(list)
+            }
+            2 => {
+                // Set
+                let set_len = file.read_u64_le().await?;
+                let mut set = HashSet::new();
+                for _ in 0..set_len {
+                    let member = read_string(&mut file).await?;
+                    set.insert(member);
+                }
+                DataType::Set(set)
+            }
+            3 => {
+                let zset_len = file.read_u64_le().await?;
+                let mut zset = SortedSetData::new();
+                for _ in 0..zset_len {
+                    let member = read_string(&mut file).await?;
+                    let score = file.read_f64_le().await?;
+
+                    let score_key = OrderedFloat(score);
+                    zset.scores
+                        .entry(score_key)
+                        .or_default()
+                        .insert(member.clone());
+                    zset.members.insert(member, score_key);
+                }
+                DataType::SortedSet(zset)
             }
             _ => {
                 return Err(io::Error::new(

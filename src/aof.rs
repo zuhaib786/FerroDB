@@ -129,13 +129,36 @@ pub async fn rewrite_aof(
                     let cmd = RespValue::Array(cmd_parts);
                     file.write_all(cmd.encode().as_bytes()).await?;
                 }
-                if let Some(ttl_duration) = ttl {
-                    let expire_cmd = RespValue::Array(vec![
-                        RespValue::BulkString("EXPIRE".to_string()),
-                        RespValue::BulkString(key),
-                        RespValue::BulkString(ttl_duration.as_secs().to_string()),
-                    ]);
-                    file.write_all(expire_cmd.encode().as_bytes()).await?;
+                write_ttl(&mut file, &key, ttl).await?;
+            }
+            crate::storage::DataType::Set(set) => {
+                if !set.is_empty() {
+                    let mut cmd_parts = vec![
+                        RespValue::BulkString("SADD".to_string()),
+                        RespValue::BulkString(key.clone()),
+                    ];
+                    for member in set {
+                        cmd_parts.push(RespValue::BulkString(member));
+                    }
+                    let cmd = RespValue::Array(cmd_parts);
+                    file.write_all(cmd.encode().as_bytes()).await?;
+                }
+                write_ttl(&mut file, &key, ttl).await?;
+            }
+            crate::storage::DataType::SortedSet(zset) => {
+                if !zset.is_empty() {
+                    let mut cmd_parts = vec![
+                        RespValue::BulkString("ZADD".to_string()),
+                        RespValue::BulkString(key.clone()),
+                    ];
+                    for (member, score) in &zset.members {
+                        cmd_parts.push(RespValue::BulkString(score.0.to_string()));
+                        cmd_parts.push(RespValue::BulkString(member.clone()));
+                    }
+
+                    let cmd = RespValue::Array(cmd_parts);
+                    file.write_all(cmd.encode().as_bytes()).await?;
+                    write_ttl(&mut file, &key, ttl).await?;
                 }
             }
             _ => {}
@@ -144,5 +167,20 @@ pub async fn rewrite_aof(
     file.sync_all().await?;
     drop(file);
     tokio::fs::rename(&temp_path, path).await?;
+    Ok(())
+}
+pub async fn write_ttl(
+    file: &mut tokio::fs::File,
+    key: &str,
+    ttl: Option<Duration>,
+) -> io::Result<()> {
+    if let Some(ttl_duration) = ttl {
+        let expire_cmd = RespValue::Array(vec![
+            RespValue::BulkString("EXPIRE".to_string()),
+            RespValue::BulkString(String::from(key)),
+            RespValue::BulkString(ttl_duration.as_secs().to_string()),
+        ]);
+        file.write_all(expire_cmd.encode().as_bytes()).await?;
+    }
     Ok(())
 }
