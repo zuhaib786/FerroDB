@@ -3,7 +3,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**FerroDB** is a high-performance, Redis-compatible key-value cache database built from scratch in Rust. Designed as both a learning project and a production-ready database, FerroDB implements core Redis functionality with modern async I/O and robust persistence.
+**FerroDB** is a high-performance, Redis-compatible key-value cache database built from scratch in Rust. Designed as both a learning project, FerroDB implements core Redis functionality with modern async I/O and robust persistence.
 
 ---
 
@@ -536,17 +536,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Redis** - For the amazing protocol and design inspiration
 - **Tokio** - For the excellent async runtime
 - **Rust Community** - For the powerful language and ecosystem
-
+- **Claude** - Built purely using claude and very less of information from my end :P(Even this readme file).  Basically i am learning from claude
 ---
 
 ## 📧 Contact
-
-**Project Maintainer**: [Your Name]
-
-- GitHub: [@yourusername](https://github.com/yourusername)
-- Email: your.email@example.com
-
-**Project Link**: [https://github.com/yourusername/ferrodb](https://github.com/yourusername/ferrodb)
 
 ---
 
