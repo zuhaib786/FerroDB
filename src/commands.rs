@@ -1,11 +1,14 @@
 use crate::aof::AofWriter;
 use crate::protocol::RespValue;
+use crate::pubsub::{ClientSubscriptions, PubSubHub};
 use crate::storage::FerroStore;
 
 pub async fn handle_command(
     value: RespValue,
     store: &FerroStore,
     aof: Option<&AofWriter>,
+    pubsub: Option<&PubSubHub>,
+    client_subs: Option<&mut ClientSubscriptions>,
 ) -> RespValue {
     // 1. Ensure that we recieved an array (Redis commands are always arrays)
     let cmd_array = match value {
@@ -18,6 +21,24 @@ pub async fn handle_command(
         RespValue::BulkString(s) => s.to_uppercase(),
         _ => return RespValue::BulkString("ERR command must be a bulk string".to_string()),
     };
+
+    if let Some(subs) = client_subs.as_ref()
+        && subs.is_subscribed()
+    {
+        // In subscribe mode, only allow certain commands
+        match cmd_name.as_str() {
+            "SUBSCRIBE" | "UNSUBSCRIBE" | "PING" | "QUIT" => {
+                // Allowed in subscribe mode
+            }
+            _ => {
+                return RespValue::SimpleString(
+                    "ERR only (P)SUBSCRIBE / (P)UNSUBSCRIBE / PING / QUIT allowed in this context"
+                        .to_string(),
+                );
+            }
+        }
+    }
+
     let should_log = matches!(
         cmd_name.as_str(),
         "SET"
@@ -82,6 +103,10 @@ pub async fn handle_command(
         "SINTER" => handle_sinter(&cmd_array, store),
         "SUNION" => handle_sunion(&cmd_array, store),
         "SDIFF" => handle_sdiff(&cmd_array, store),
+
+        "SUBSCRIBE" => handle_subscribe(&cmd_array, pubsub, client_subs),
+        "UNSUBSCRIBE" => handle_unsubscribe(&cmd_array, client_subs),
+        "PUBLISH" => handle_publish(&cmd_array, pubsub),
 
         _ => RespValue::SimpleString(format!("ERR unknown command {}", cmd_name)),
     }
@@ -884,5 +909,135 @@ fn handle_zcard(cmd_array: &[RespValue], store: &FerroStore) -> RespValue {
         }
     } else {
         RespValue::SimpleString("ERR key must be a bulk string".to_string())
+    }
+}
+fn handle_subscribe(
+    cmd_array: &[RespValue],
+    pubsub: Option<&PubSubHub>,
+    client_subs: Option<&mut ClientSubscriptions>,
+) -> RespValue {
+    if cmd_array.len() < 2 {
+        return RespValue::SimpleString(
+            "ERR wrong number of arguments for 'subscribe' command".to_string(),
+        );
+    }
+
+    let Some(hub) = pubsub else {
+        return RespValue::SimpleString("ERR pub/sub not available".to_string());
+    };
+
+    let Some(subs) = client_subs else {
+        return RespValue::SimpleString("ERR subscription tracking not available".to_string());
+    };
+
+    let mut responses = Vec::new();
+
+    for channel_val in &cmd_array[1..] {
+        if let RespValue::BulkString(channel) = channel_val {
+            // Subscribe to channel
+            let receiver = hub.subscribe(channel);
+            subs.add(channel.clone(), receiver);
+
+            // Return subscription confirmation
+            // Format: ["subscribe", channel, subscription_count]
+            responses.push(RespValue::Array(vec![
+                RespValue::BulkString("subscribe".to_string()),
+                RespValue::BulkString(channel.clone()),
+                RespValue::Integer(subs.count() as i64),
+            ]));
+        } else {
+            return RespValue::SimpleString("ERR channel names must be bulk strings".to_string());
+        }
+    }
+
+    // Return array of all subscription confirmations
+    if responses.len() == 1 {
+        responses.into_iter().next().unwrap()
+    } else {
+        RespValue::Array(responses)
+    }
+}
+
+fn handle_unsubscribe(
+    cmd_array: &[RespValue],
+    client_subs: Option<&mut ClientSubscriptions>,
+) -> RespValue {
+    let Some(subs) = client_subs else {
+        return RespValue::SimpleString("ERR subscription tracking not available".to_string());
+    };
+
+    if cmd_array.len() == 1 {
+        // UNSUBSCRIBE with no args = unsubscribe from all
+        let channels: Vec<String> = subs.channels();
+        let mut responses = Vec::new();
+
+        for channel in channels {
+            subs.remove(&channel);
+            responses.push(RespValue::Array(vec![
+                RespValue::BulkString("unsubscribe".to_string()),
+                RespValue::BulkString(channel),
+                RespValue::Integer(subs.count() as i64),
+            ]));
+        }
+
+        if responses.is_empty() {
+            // Not subscribed to anything
+            return RespValue::Array(vec![
+                RespValue::BulkString("unsubscribe".to_string()),
+                RespValue::Null,
+                RespValue::Integer(0),
+            ]);
+        }
+
+        if responses.len() == 1 {
+            responses.into_iter().next().unwrap()
+        } else {
+            RespValue::Array(responses)
+        }
+    } else {
+        // UNSUBSCRIBE specific channels
+        let mut responses = Vec::new();
+
+        for channel_val in &cmd_array[1..] {
+            if let RespValue::BulkString(channel) = channel_val {
+                subs.remove(channel);
+                responses.push(RespValue::Array(vec![
+                    RespValue::BulkString("unsubscribe".to_string()),
+                    RespValue::BulkString(channel.clone()),
+                    RespValue::Integer(subs.count() as i64),
+                ]));
+            } else {
+                return RespValue::SimpleString(
+                    "ERR channel names must be bulk strings".to_string(),
+                );
+            }
+        }
+
+        if responses.len() == 1 {
+            responses.into_iter().next().unwrap()
+        } else {
+            RespValue::Array(responses)
+        }
+    }
+}
+
+fn handle_publish(cmd_array: &[RespValue], pubsub: Option<&PubSubHub>) -> RespValue {
+    if cmd_array.len() != 3 {
+        return RespValue::SimpleString(
+            "ERR wrong number of arguments for 'publish' command".to_string(),
+        );
+    }
+
+    let Some(hub) = pubsub else {
+        return RespValue::SimpleString("ERR pub/sub not available".to_string());
+    };
+
+    if let (RespValue::BulkString(channel), RespValue::BulkString(message)) =
+        (&cmd_array[1], &cmd_array[2])
+    {
+        let count = hub.publish(channel, message.clone());
+        RespValue::Integer(count as i64)
+    } else {
+        RespValue::SimpleString("ERR arguments must be bulk strings".to_string())
     }
 }

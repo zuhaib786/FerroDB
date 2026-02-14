@@ -161,7 +161,6 @@ pub async fn rewrite_aof(
                     write_ttl(&mut file, &key, ttl).await?;
                 }
             }
-            _ => {}
         }
     }
     file.sync_all().await?;

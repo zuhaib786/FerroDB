@@ -71,13 +71,6 @@ impl ValueWithExpiry {
         }
     }
 
-    fn new_sorted_set() -> Self {
-        Self {
-            data: DataType::SortedSet(SortedSetData::new()),
-            expires_at: None,
-        }
-    }
-
     fn new_set() -> Self {
         Self {
             data: DataType::Set(HashSet::new()),

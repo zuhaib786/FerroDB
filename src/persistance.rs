@@ -57,7 +57,6 @@ pub async fn save_rdb(store: &FerroStore, path: &str) -> io::Result<()> {
                     file.write_f64_le(score.0).await?;
                 }
             }
-            _ => {}
         }
 
         // Write expiry

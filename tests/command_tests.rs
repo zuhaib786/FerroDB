@@ -8,13 +8,13 @@ async fn test_set_get_flow() {
     // 1. Simulate: SET "greet" "hello"
     let set_input = "*3\r\n$3\r\nSET\r\n$5\r\ngreet\r\n$5\r\nhello\r\n";
     let parsed_set = parse_resp(set_input).unwrap();
-    let response_set = handle_command(parsed_set, &store, None).await;
+    let response_set = handle_command(parsed_set, &store, None, None, None).await;
     assert_eq!(response_set, RespValue::SimpleString("OK".to_string()));
 
     // 2. Simulate: GET "greet"
     let get_input = "*2\r\n$3\r\nGET\r\n$5\r\ngreet\r\n";
     let parsed_get = parse_resp(get_input).unwrap();
-    let response_get = handle_command(parsed_get, &store, None).await;
+    let response_get = handle_command(parsed_get, &store, None, None, None).await;
     assert_eq!(response_get, RespValue::BulkString("hello".to_string()));
 }
 #[tokio::test]
@@ -24,13 +24,13 @@ async fn test_case_insensitive_commands() {
     // SET in lowercase
     let set_input = "*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$5\r\nvalue\r\n";
     let parsed = parse_resp(set_input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
     assert_eq!(response, RespValue::SimpleString("OK".to_string()));
 
     // GET in mixed case
     let get_input = "*2\r\n$3\r\nGeT\r\n$3\r\nkey\r\n";
     let parsed = parse_resp(get_input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
     assert_eq!(response, RespValue::BulkString("value".to_string()));
 }
 #[tokio::test]
@@ -43,7 +43,7 @@ async fn test_del_command() {
     // DEL returns number of keys removed
     let input = "*2\r\n$3\r\nDEL\r\n$4\r\nkey1\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
     assert_eq!(response, RespValue::Integer(1));
 
     // Key should be gone
@@ -59,7 +59,7 @@ async fn test_del_single_key() {
     // DEL mykey
     let input = "*2\r\n$3\r\nDEL\r\n$5\r\nmykey\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     // Should return integer 1 (one key deleted)
     assert_eq!(response, RespValue::Integer(1));
@@ -74,7 +74,7 @@ async fn test_del_nonexistent_key() {
     // DEL nonexistent
     let input = "*2\r\n$3\r\nDEL\r\n$11\r\nnonexistent\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     // Should return integer 0 (no keys deleted)
     assert_eq!(response, RespValue::Integer(0));
@@ -91,7 +91,7 @@ async fn test_del_multiple_keys() {
     // DEL key1 key2 key3 (key3 doesn't exist)
     let input = "*4\r\n$3\r\nDEL\r\n$4\r\nkey1\r\n$4\r\nkey2\r\n$4\r\nkey3\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     // Should return 2 (two keys deleted)
     assert_eq!(response, RespValue::Integer(2));
@@ -105,7 +105,7 @@ async fn test_exists_single_key() {
     // EXISTS mykey
     let input = "*2\r\n$6\r\nEXISTS\r\n$5\r\nmykey\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     assert_eq!(response, RespValue::Integer(1));
 }
@@ -117,7 +117,7 @@ async fn test_exists_nonexistent_key() {
     // EXISTS nonexistent
     let input = "*2\r\n$6\r\nEXISTS\r\n$11\r\nnonexistent\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     assert_eq!(response, RespValue::Integer(0));
 }
@@ -131,7 +131,7 @@ async fn test_exists_multiple_keys() {
     // EXISTS key1 key2 key3 (key3 doesn't exist)
     let input = "*4\r\n$6\r\nEXISTS\r\n$4\r\nkey1\r\n$4\r\nkey2\r\n$4\r\nkey3\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     // Should return 2 (two keys exist)
     assert_eq!(response, RespValue::Integer(2));
@@ -148,7 +148,7 @@ async fn test_mget_multiple_keys() {
     // MGET key1 key2 key3
     let input = "*4\r\n$4\r\nMGET\r\n$4\r\nkey1\r\n$4\r\nkey2\r\n$4\r\nkey3\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     // Should return array with: ["value1", "value2", null]
     assert_eq!(
@@ -168,7 +168,7 @@ async fn test_mget_all_nonexistent() {
     // MGET key1 key2
     let input = "*3\r\n$4\r\nMGET\r\n$4\r\nkey1\r\n$4\r\nkey2\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     // Should return array of nulls
     assert_eq!(
@@ -184,7 +184,7 @@ async fn test_mget_no_arguments() {
     // MGET with no keys
     let input = "*1\r\n$4\r\nMGET\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     // Should return error
     match response {
@@ -200,7 +200,7 @@ async fn test_mset_multiple_pairs() {
     // MSET key1 value1 key2 value2
     let input = "*5\r\n$4\r\nMSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n$4\r\nkey2\r\n$6\r\nvalue2\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     assert_eq!(response, RespValue::SimpleString("OK".to_string()));
 
@@ -218,7 +218,7 @@ async fn test_mset_overwrites_existing() {
     // MSET key1 new_value
     let input = "*3\r\n$4\r\nMSET\r\n$4\r\nkey1\r\n$9\r\nnew_value\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     assert_eq!(response, RespValue::SimpleString("OK".to_string()));
     assert_eq!(store.get("key1"), Some("new_value".to_string()));
@@ -231,7 +231,7 @@ async fn test_mset_odd_arguments() {
     // MSET key1 value1 key2 (missing value for key2)
     let input = "*4\r\n$4\r\nMSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n$4\r\nkey2\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     // Should return error
     match response {
@@ -249,7 +249,7 @@ async fn test_mset_no_arguments() {
     // MSET with no pairs
     let input = "*1\r\n$4\r\nMSET\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     match response {
         RespValue::SimpleString(msg) => assert!(msg.contains("Wrong") || msg.contains("ERR")),
@@ -263,13 +263,13 @@ async fn test_lpush_lpop_flow() {
     // LPUSH mylist "world" "hello"
     let input = "*4\r\n$5\r\nLPUSH\r\n$6\r\nmylist\r\n$5\r\nworld\r\n$5\r\nhello\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
     assert_eq!(response, RespValue::Integer(2));
 
     // LPOP mylist
     let input = "*2\r\n$4\r\nLPOP\r\n$6\r\nmylist\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
     assert_eq!(response, RespValue::BulkString("hello".to_string()));
 }
 
@@ -280,13 +280,13 @@ async fn test_rpush_rpop_flow() {
     // RPUSH mylist "a" "b" "c"
     let input = "*5\r\n$5\r\nRPUSH\r\n$6\r\nmylist\r\n$1\r\na\r\n$1\r\nb\r\n$1\r\nc\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
     assert_eq!(response, RespValue::Integer(3));
 
     // RPOP mylist 2
     let input = "*3\r\n$4\r\nRPOP\r\n$6\r\nmylist\r\n$1\r\n2\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
     assert_eq!(
         response,
         RespValue::Array(vec![
@@ -317,7 +317,7 @@ async fn test_lrange_command() {
     // LRANGE mylist 0 2
     let input = "*4\r\n$6\r\nLRANGE\r\n$6\r\nmylist\r\n$1\r\n0\r\n$1\r\n2\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
     assert_eq!(
         response,
         RespValue::Array(vec![
@@ -343,7 +343,7 @@ async fn test_llen_command() {
     // LLEN mylist
     let input = "*2\r\n$4\r\nLLEN\r\n$6\r\nmylist\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
     assert_eq!(response, RespValue::Integer(3));
 }
 
@@ -357,7 +357,7 @@ async fn test_lpush_on_string_key() {
     // LPUSH mykey "item" - should fail
     let input = "*3\r\n$5\r\nLPUSH\r\n$5\r\nmykey\r\n$4\r\nitem\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     if let RespValue::SimpleString(msg) = response {
         assert!(msg.contains("WRONGTYPE"));
@@ -371,12 +371,12 @@ async fn test_sadd_smembers() {
 
     let input = "*4\r\n$4\r\nSADD\r\n$5\r\nmyset\r\n$5\r\napple\r\n$6\r\nbanana\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
     assert_eq!(response, RespValue::Integer(2));
 
     let input = "*2\r\n$8\r\nSMEMBERS\r\n$5\r\nmyset\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     if let RespValue::Array(members) = response {
         assert_eq!(members.len(), 2);
@@ -404,7 +404,7 @@ async fn test_sinter() {
 
     let input = "*3\r\n$6\r\nSINTER\r\n$4\r\nset1\r\n$4\r\nset2\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     if let RespValue::Array(members) = response {
         assert_eq!(members.len(), 2);
@@ -421,12 +421,12 @@ async fn test_zadd_zrange() {
 
     let input = "*6\r\n$4\r\nZADD\r\n$11\r\nleaderboard\r\n$3\r\n100\r\n$5\r\nalice\r\n$3\r\n200\r\n$3\r\nbob\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
     assert_eq!(response, RespValue::Integer(2));
 
     let input = "*4\r\n$6\r\nZRANGE\r\n$11\r\nleaderboard\r\n$1\r\n0\r\n$2\r\n-1\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
 
     assert_eq!(
         response,
@@ -454,11 +454,11 @@ async fn test_zscore_zrank() {
 
     let input = "*3\r\n$6\r\nZSCORE\r\n$11\r\nleaderboard\r\n$5\r\nalice\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
     assert_eq!(response, RespValue::BulkString("100".to_string()));
 
     let input = "*3\r\n$5\r\nZRANK\r\n$11\r\nleaderboard\r\n$3\r\nbob\r\n";
     let parsed = parse_resp(input).unwrap();
-    let response = handle_command(parsed, &store, None).await;
+    let response = handle_command(parsed, &store, None, None, None).await;
     assert_eq!(response, RespValue::Integer(2));
 }

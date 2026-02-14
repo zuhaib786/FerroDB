@@ -23,10 +23,10 @@ async fn test_aof_logging_and_replay() {
 
     // Execute some commands
     let cmd1 = parse_resp("*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n").unwrap();
-    handle_command(cmd1, &store, Some(&aof_writer)).await;
+    handle_command(cmd1, &store, Some(&aof_writer), None, None).await;
 
     let cmd2 = parse_resp("*3\r\n$3\r\nSET\r\n$4\r\nkey2\r\n$6\r\nvalue2\r\n").unwrap();
-    handle_command(cmd2, &store, Some(&aof_writer)).await;
+    handle_command(cmd2, &store, Some(&aof_writer), None, None).await;
 
     // Wait for AOF to flush
     sleep(Duration::from_secs(2)).await;
@@ -38,7 +38,7 @@ async fn test_aof_logging_and_replay() {
     let count = load_aof(path, move |cmd| {
         let s = store_clone.clone();
         tokio::spawn(async move {
-            handle_command(cmd, &s, None).await;
+            handle_command(cmd, &s, None, None, None).await;
         });
     })
     .await
@@ -86,7 +86,7 @@ async fn test_aof_rewrite() {
     let command_count = load_aof(path, move |cmd| {
         let s = store_clone.clone();
         tokio::spawn(async move {
-            handle_command(cmd, &s, None).await;
+            handle_command(cmd, &s, None, None, None).await;
         });
     })
     .await
